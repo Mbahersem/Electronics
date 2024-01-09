@@ -1,0 +1,36 @@
+header {
+    display: flex;
+    align-items: center;
+    height: 84px;
+    width: 100%;
+    padding: 0px 53px;
+    position: fixed;
+    z-index: 10;
+    transition: all ease 0.5s;
+}
+.header-bg {
+    background-color: rgba(0, 0, 0, 0.85);
+    transition: all ease 0.5s;
+    
+}
+header::before{
+    content: "";
+    z-index: -1;
+    position: absolute;
+    -webkit-transform: translateX(-50%);
+    top: 85px;
+    left: 50%;
+    width: 80%;
+    height: 1px;
+    background-color: white;
+}
+header img {
+    width: 60px;
+    height: 66px;
+}
+header p {
+    font-size: 32px;
+    margin: 0px 15px;
+    color: white;
+    font-family: 'Roboto';
+}
