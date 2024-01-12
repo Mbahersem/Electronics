@@ -16,27 +16,135 @@
 */
 
 const char simPIN[] = "";
+String basic = "http://localhost:8000/npkmeter/npkph/"; 
+String prediction = "http://localhost:8000/npkmeter/npkph/prediction"; // URL de la prédiction
 
 // Module utilisé et buffer
 #define TINY_GSM_MODEM_SIM800
 #define TINY_GSM_RX_BUFFER 1024
 
+#define TEST_NPK
 // Importation des bibliothèques nécessaires
 #include <SoftwareSerial.h>
-#include <ESP8266WiFi.h>
-#include <ESP32WiFi.h>
-#include <WiFi.h>
-#include <ESP8266HTTPClient.h>
-#include <WiFiClient.h>
 #include <Wire.h>
-#include <TinyGsmClient.h>
-
-WiFiServer server(80);
 
 #if defined(ESP8266)
   #define MICROCONTROLLER_TYPE "ESP8266"
+  #include <ESP8266WiFi.h>
+  #include <ESP8266HTTPClient.h>
+  #include <WiFiClient.h>
+  WiFiServer server(80);
 #elif defined(ESP32)
   #define MICROCONTROLLER_TYPE "ESP32"
+  #include <WiFi.h>
+  #include <HTTPClient.h>
+  #include <TinyGsmClient.h>
+  #include <WiFiClient.h>
+
+  struct Message {
+    String phoneNumber;
+    String message;
+  };
+
+  typedef struct Message SMS;
+
+  SMS listSMS[50];
+  
+  int count;
+
+  // Broches pour la communication avec le module SIM800 à travers l'ESP32
+  #define MODEM_RST 5
+  #define MODEM_PWKEY 4
+  #define MODEM_POWER_ON 23
+  #define MODEM_TX 27 
+  #define MODEM_RX 26
+  #define I2C_SDA 21
+  #define I2C_SCL 22
+
+  char smsBuffer[250];
+
+  #define IP5306_ADDR 0x75
+  #define IP5306_REG_SYS_CTL0 0x00
+
+  #define SerialMon Serial
+  #define SerialAT Serial1
+
+  TinyGsm modem(SerialAT);
+
+  bool setPowerBoostKeepOn(int en) {
+    Wire.beginTransmission(IP5306_ADDR);
+    Wire.write(IP5306_REG_SYS_CTL0);
+    if(en) {
+      Wire.write(0x37);
+    }
+    else {
+      Wire.write(0x35);
+    }
+    return Wire.endTransmission() == 0;
+  }
+
+  void updateSerial() {
+    while(SerialMon.available()) {
+      SerialAT.write(SerialMon.read());
+    }
+
+    while(SerialAT.available()) {
+      SerialMon.write(SerialAT.read());
+    }
+  }
+
+  void sendMessage(String phoneNumber,String content){
+    SerialAT.print("AT+CMGS=\"");
+    SerialAT.print(phoneNumber);
+    SerialAT.println("\"");
+    delay(1000);
+    SerialAT.print(content);
+    delay(100);
+    SerialAT.println((char)26);
+    delay(1000);
+    Serial.println("Message envoyé !");    
+  }
+
+  void getUnreadSMS() {
+    SerialAT.println("AT+CMGL=\"REC UNREAD\"");
+    int i = 0;
+    count = 0;
+
+    while(SerialAT.available()) {
+      String line = SerialAT.readStringUntil('\n');
+      if(line.startsWith("+CMGL:")) {
+        int firstComma = line.indexOf(',');
+        int secondComma = line.indexOf(',', firstComma + 1);
+        int thirdComma = line.indexOf(',', secondComma + 1);
+        int fourthComma = line.indexOf(',', thirdComma + 1);
+        String sender = line.substring(secondComma + 1, thirdComma);
+        int fifthComma = line.indexOf(',', fourthComma + 1);
+        String message = line.substring(fifthComma + 12);
+        listSMS[i] = {sender, message};
+        i++;
+        Serial.print("Message de : ");
+        Serial.print(sender);
+        Serial.print(" ");
+        Serial.println(message);
+      }
+    }
+    count = i;
+  }
+
+  void processMessages() {
+    for(int i = 0; i < count; i++) {
+      if(listSMS[i].message == "get") {
+        // httpPOSTRequest(basic);
+        String response = httpGETRequest(basic);
+        sendMessage(listSMS[i].phoneNumber, response);
+      }
+      if(listSMS[i].message == "predict") {
+        // httpPOSTRequest(basic);
+        String response = httpGETRequest(prediction);
+        sendMessage(listSMS[i].phoneNumber, response);
+      }
+    }
+  }
 #else
   #error "Type de microcontrôleur non pris en charge"
 #endif
@@ -48,18 +156,6 @@ WiFiServer server(80);
 // On peut également modifier ces informations en fonction de nos besoins
 #define RX  4// Emulation de la broche qu'on veut pour la réception en série
 #define TX  0// Emulation de la broche qu'on veut pour la transmission en série
-
-// Broches pour la communication avec le module SIM800 à travers l'ESP32
-#define MODEM_RST 5
-#define MODEM_PWKEY 4
-#define MODEM_POWER_ON 23
-#define MODEM_TX 27 
-#define MODEM_RX 26
-#define I2C_SDA 21
-#define I2C_SCL 22
-
-#define SerialMon Serial
-#define SerialAT Serial1
 
 SoftwareSerial mod(RX, TX); // Initialisation d'une communication série avec le MAX485
 
@@ -75,43 +171,16 @@ const char* ssid = "Marvelous"; // Nom du point d'accès WiFi
 const char* password = "07122023*"; // Mot de passe du point d'accès WiFi
 
 // URL des requêtes HTTP POST et GET, à modifier en fonction de l'API qu'on a créé côté serveur
-String basic = "http://localhost:8000/npkmeter/npkph/"; 
-String prediction = "http://localhost:8000/npkmeter/npkph/prediction"; // URL de la prédiction
 
 unsigned long lastTime = 0;
 unsigned long timerDelay = 1000; // Délai d'envoi des données
 
-char smsBuffer[250];
-
-#define IP5306_ADDR 0x75
-#define IP5306_REG_SYS_CTL0 0x00
-
-bool setPowerBoostKeepOn(int en) {
-  Wire.beginTransmission(IP5306_ADDR);
-  Wire.write(IP5306_REG_SYS_CTL0);
-  if(en) {
-    Wire.write(0x37);
-  }
-  else {
-    Wire.write(0x35);
-  }
-  return Wire.endTransmission() == 0;
-}
-
-void updateSerial() {
-  while(SerialMon.available()) {
-    SerialAT.write(SerialMon.read());
-  }
-
-  while(SerialAT.available()) {
-    SerialMon.write(SerialAT.read());
-  }
-}
-
 void setup() {
-    mod.begin(9600); // Initialisation pour la communication en série avec le MAX485 modbus
-
     #if defined(ESP8266)
+      mod.begin(9600); // Initialisation pour la communication en série avec le MAX485 modbus
+      pinMode(RE, OUTPUT); // Configuration de la broche RE en sortie
+      pinMode(DE, OUTPUT); // Configuration de la broche DE en sortie
+      Serial.println("Modbus initialisé.");
       SerialMon.begin(115200); // Démarrage de la communication en série avec la vitesse de 115200 pour la connexion au WiFi
       WiFi.begin(ssid, password); // Initialisation de la connexion au point d'accès WiFi
 
@@ -127,6 +196,10 @@ void setup() {
       server.begin();
       Serial.println("Serveur HTTP démarré.");
     #elif defined(ESP32)
+      mod.begin(9600); // Initialisation pour la communication en série avec le MAX485 modbus
+      pinMode(RE, OUTPUT); // Configuration de la broche RE en sortie
+      pinMode(DE, OUTPUT); // Configuration de la broche DE en sortie
+      Serial.println("Modbus initialisé.");
       SerialMon.begin(115200);
 
       Wire.begin(I2C_SDA, I2C_SCL);
@@ -151,14 +224,14 @@ void setup() {
       if(strlen(simPIN) && modem.getSimStatus() != 3) {
         modem.simUnlock(simPIN);
       }
-
-      String smsMessage = "Hello from ESP32!";
-      if(modem.sendSMS(SMS_TARGET, smsMessage)) {
-        SerialMon.println(smsMessage);
-      }
-      else {
-        SerialMon.println("SMS failed to send");
-      }
+      // Décommenter pour tester l'envoi de messages sur ma carte SIM
+      // String smsMessage = "Hello from ESP32!";
+      // if(modem.sendSMS("+237698851756", smsMessage)) {
+      //   SerialMon.println(smsMessage);
+      // }
+      // else {
+      //   SerialMon.println("SMS failed to send");
+      // }
 
       SerialAT.println("AT"); // Handshake réussi
       updateSerial();
@@ -169,45 +242,43 @@ void setup() {
       SerialAT.println("AT+CNMI=2,2,0,0,0"); // Décider comment les nouveaux messages reçus devront être gérés
       updateSerial();
     #endif
-    
-    Serial.println("Timer configué pour envoyer la première lecture chaque 1s.");
-
-    pinMode(RE, OUTPUT); // Configuration de la broche RE en sortie
-    pinMode(DE, OUTPUT); // Configuration de la broche DE en sortie
 }
 
 void loop() {
         #if defined(ESP8266)
           updateServer();
-          // if((millis() - lastTime) > timerDelay) { // Ce code va s'effectuer à chaque intervalle de timerDelay
-          //     lastTime = millis();
-          // }
         #elif defined(ESP32)
 
           updateSerial();
-          while(SerialAT.available()) {
-            String message = SerialAT.readString();
-            Serial.print("Message reçu : ");
-            Serial.println(message);
-            String content = getMessage(message);
-            String phoneNumber = getReceiver(message);
+          getUnreadSMS();
+          processMessages();
+          // while(SerialAT.available()) {
 
-            if(content.equals("get")){
-              httpPOSTRequest(basic);
-              String response = httpGETRequest(basic);
-              sendMessage(phoneNumber, response);
-            }
+          //   String message = SerialAT.readString();
+          //   Serial.print("Message reçu : ");
+          //   Serial.println(message);
+          //   String content = getMessage(message);
+          //   String phoneNumber = getReceiver(message);
+          //   Serial.print(phoneNumber);
+          //   Serial.println("");
+          //   Serial.print(content);
 
-            if(content.equals("predict")){
-              httpPOSTRequest(basic);
-              String response = httpGETRequest(prediction);
-              sendMessage(phoneNumber, response);
-            }
+          //   if(content == "get"){
+          //     // httpPOSTRequest(basic);
+          //     String response = httpGETRequest(basic);
+          //     sendMessage(phoneNumber, response);
+          //   }
 
-            if(content.equals("doc")){
+          //   if(content == "predict"){
+          //     // httpPOSTRequest(basic);
+          //     String response = httpGETRequest(prediction);
+          //     sendMessage(phoneNumber, response);
+          //   }
 
-            }
-          }
+          //   if(content == "doc"){
+
+          //   }
+          // }
         #endif
 
 }
@@ -229,6 +300,7 @@ byte nitrogen() {
 
         for(byte i = 0; i < 7; i++) {
             values[i] = mod.read();
+            Serial.print(values[i], HEX);
         }
         Serial.println();
     }
@@ -252,6 +324,7 @@ byte phosphorous() {
 
         for(byte i = 0; i < 7; i++) {
             values[i] = mod.read();
+            Serial.print(values[i], HEX);
         }
         Serial.println();
     }
@@ -275,54 +348,43 @@ byte potassium() {
 
         for(byte i = 0; i < 7; i++) {
             values[i] = mod.read();
+            Serial.print(values[i], HEX);
         }
         Serial.println();
     }
     return values[4];
 }
 
-String getMessage(String message){
-      int phoneNumberStart = message.indexOf("SEND_SMS") + 9;
-      int phoneNumberEnd = message.indexOf(",", phoneNumberStart);
-  // Extraire le contenu du message
-      int messageStart = phoneNumberEnd + 1;
-      String content = message.substring(messageStart);
-      return content;
-}
+// String getMessage(String message){
+//       int phoneNumberStart = message.indexOf("SEND_SMS") + 9;
+//       int phoneNumberEnd = message.indexOf(",", phoneNumberStart);
+//   // Extraire le contenu du message
+//       int messageStart = phoneNumberEnd + 1;
+//       String content = message.substring(messageStart);
+//       return content;
+// }
 
-String getReceiver(String message){
-  if (message.indexOf("SEND_SMS") != -1) {
-      // Extraire le numéro de téléphone du message
-      int phoneNumberStart = message.indexOf("SEND_SMS") + 9;
-      int phoneNumberEnd = message.indexOf(",", phoneNumberStart);
-      String phoneNumber = message.substring(phoneNumberStart, phoneNumberEnd);
+// String getReceiver(String message){
+//   if (message.indexOf("SEND_SMS") != -1) {
+//       // Extraire le numéro de téléphone du message
+//       int phoneNumberStart = message.indexOf("SEND_SMS") + 9;
+//       int phoneNumberEnd = message.indexOf(",", phoneNumberStart);
+//       String phoneNumber = message.substring(phoneNumberStart, phoneNumberEnd);
 
-      return phoneNumber;
-  }
-  else
-  {
-      return "Aucun numéro";
-  }  
-}
-
-void sendMessage(String phoneNumber,String content){
-      SerialAT.print("AT+CMGS=\"");
-      SerialAT.print(phoneNumber);
-      SerialAT.println("\"");
-      delay(1000);
-      SerialAT.print(content);
-      delay(100);
-      SerialAT.println((char)26);
-      delay(1000);
-      Serial.println("Message envoyé !");    
-}
+//       return phoneNumber;
+//   }
+//   else
+//   {
+//       return "Aucun numéro";
+//   }  
+// }
 
 void httpPOSTRequest(String url) {
   WiFiClient client;
 
   HTTPClient http;
 
-  http.begin(*client, url); // Initialisation de la communication HTTP
+  http.begin(client, url); // Initialisation de la communication HTTP
 
   http.addHeader("Content-Type", "application/json"); // On ajoute une entête pour spécifier que la requête se fera au format JSON
   String httpRequest = "{\"n\":\"" + String(nitrogen())
@@ -363,21 +425,35 @@ String httpGETRequest(String url) {
 }
 
 void updateServer() {
-  WiFiClient client = server.available();
-  if(!client) {
-    return;
-  }
+  #if defined(ESP8266)
+    WiFiClient client = server.available();
+    if(!client) {
+      #ifdef TEST_NPK
+        Serial.print("N : ");
+        Serial.println(nitrogen());
+        Serial.print("P : ");
+        Serial.println(potassium());
+        Serial.print("K : ");
+        Serial.println(phosphorous());
+      #endif
+      return;
+    }
 
-  while(client.connected()) {
-    if(client.available()) {
-      String request = client.readStringUntil('\r');
-      Serial.println(request);
+    while(client.connected()) {
+      if(client.available()) {
+        String request = client.readStringUntil('\r');
+        Serial.println(request);
 
-      if(request.indexOf("/post") != -1) {
-        if(WiFi.status() == WL_CONNECTED) { // Vérification de l'état de connexion au point d'accès
-          httpPOSTRequest(basic);
+        if(request.indexOf("/post") != -1) {
+          if(WiFi.status() == WL_CONNECTED) { // Vérification de l'état de connexion au point d'accès
+            httpPOSTRequest(basic);
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-Type: text/html");
+            client.println("");
+          }
         }
       }
-    }
-  }
+    } 
+    client.stop();
+  #endif
 }
