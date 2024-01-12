@@ -1,0 +1,19 @@
+.container {
+display: flex;
+}
+.container div {
+    width: 200px;
+    --height: 200px;
+    text-align: center;
+    line-height: var(--height) ;
+}
+.one {
+    position: absolute;
+    background-color: blue;
+    z-index: 1;
+}
+.two {
+    position: absolute;
+    background-color: red;
+    z-index: 1;
+}
