@@ -8,6 +8,7 @@
 *   https://randomnerdtutorials.com/esp8266-nodemcu-http-get-post-arduino/
 *   https://randomnerdtutorials.com/esp32-http-get-post-arduino/
 *   https://microdigisoft.com/send-and-receive-sms-using-esp32-ttgo-t1-call-with-arduino-ide/
+*   https://www.developershome.com/sms/readSmsByAtCommands.asp
 *
 * Rédigé par l'équipe de stagiaires
 *
@@ -61,8 +62,6 @@ String prediction = "http://localhost:8000/npkmeter/npkph/prediction"; // URL de
   #define I2C_SDA 21
   #define I2C_SCL 22
 
-  char smsBuffer[250];
-
   #define IP5306_ADDR 0x75
   #define IP5306_REG_SYS_CTL0 0x00
 
@@ -83,15 +82,15 @@ String prediction = "http://localhost:8000/npkmeter/npkph/prediction"; // URL de
     return Wire.endTransmission() == 0;
   }
 
-  void updateSerial() {
-    while(SerialMon.available()) {
-      SerialAT.write(SerialMon.read());
-    }
+  // void updateSerial() {
+  //   while(SerialMon.available()) {
+  //     SerialAT.write(SerialMon.read());
+  //   }
 
-    while(SerialAT.available()) {
-      SerialMon.write(SerialAT.read());
-    }
-  }
+  //   while(SerialAT.available()) {
+  //     SerialMon.write(SerialAT.read());
+  //   }
+  // }
 
   void sendMessage(String phoneNumber,String content){
     SerialAT.print("AT+CMGS=\"");
@@ -177,21 +176,21 @@ unsigned long timerDelay = 1000; // Délai d'envoi des données
 
 void setup() {
     #if defined(ESP8266)
-      mod.begin(9600); // Initialisation pour la communication en série avec le MAX485 modbus
-      pinMode(RE, OUTPUT); // Configuration de la broche RE en sortie
       pinMode(DE, OUTPUT); // Configuration de la broche DE en sortie
+      pinMode(RE, OUTPUT); // Configuration de la broche RE en sortie
+      Serial.begin(115200); // Démarrage de la communication en série avec la vitesse de 115200 pour la connexion au WiFi
+      mod.begin(9600); // Initialisation pour la communication en série avec le MAX485 modbus
       Serial.println("Modbus initialisé.");
-      SerialMon.begin(115200); // Démarrage de la communication en série avec la vitesse de 115200 pour la connexion au WiFi
       WiFi.begin(ssid, password); // Initialisation de la connexion au point d'accès WiFi
 
-      SerialMon.print("Connexion");
+      Serial.print("Connexion");
       while(WiFi.status() != WL_CONNECTED) { // Vérification de la connexion au point d'accès
           delay(500);
           Serial.print(".");
       }
-      SerialMon.println("");
-      SerialMon.print("Connecté au réseau WiFi avec l'adresse IP : ");
-      SerialMon.println(WiFi.localIP());
+      Serial.println("");
+      Serial.print("Connecté au réseau WiFi avec l'adresse IP : ");
+      Serial.println(WiFi.localIP());
 
       server.begin();
       Serial.println("Serveur HTTP démarré.");
@@ -199,7 +198,7 @@ void setup() {
       mod.begin(9600); // Initialisation pour la communication en série avec le MAX485 modbus
       pinMode(RE, OUTPUT); // Configuration de la broche RE en sortie
       pinMode(DE, OUTPUT); // Configuration de la broche DE en sortie
-      Serial.println("Modbus initialisé.");
+      SerialMon.println("Modbus initialisé.");
       SerialMon.begin(115200);
 
       Wire.begin(I2C_SDA, I2C_SCL);
@@ -221,26 +220,27 @@ void setup() {
       SerialMon.println("Initialisation du modem...");
       modem.restart();
 
-      if(strlen(simPIN) && modem.getSimStatus() != 3) {
-        modem.simUnlock(simPIN);
-      }
+      // if(strlen(simPIN) && modem.getSimStatus() != 3) {
+      //   modem.simUnlock(simPIN);
+      // }
       // Décommenter pour tester l'envoi de messages sur ma carte SIM
-      // String smsMessage = "Hello from ESP32!";
-      // if(modem.sendSMS("+237698851756", smsMessage)) {
-      //   SerialMon.println(smsMessage);
-      // }
-      // else {
-      //   SerialMon.println("SMS failed to send");
-      // }
+      String smsMessage = "Hello from ESP32!";
+      sendMessage("+237698851756", "Helloooo !");
+      if(modem.sendSMS("+237698851756", smsMessage)) {
+        SerialMon.println(smsMessage);
+      }
+      else {
+        SerialMon.println("SMS failed to send");
+      }
 
       SerialAT.println("AT"); // Handshake réussi
-      updateSerial();
+      // updateSerial();
       delay(200);
       SerialAT.println("AT+CMGF=1"); // Configurer le mode texte
-      updateSerial();
+      //updateSerial();
       delay(200);
       SerialAT.println("AT+CNMI=2,2,0,0,0"); // Décider comment les nouveaux messages reçus devront être gérés
-      updateSerial();
+      // updateSerial();
     #endif
 }
 
@@ -249,7 +249,7 @@ void loop() {
           updateServer();
         #elif defined(ESP32)
 
-          updateSerial();
+          // updateSerial();
           getUnreadSMS();
           processMessages();
           // while(SerialAT.available()) {
@@ -435,6 +435,8 @@ void updateServer() {
         Serial.println(potassium());
         Serial.print("K : ");
         Serial.println(phosphorous());
+        Serial.println();
+        delay(1000);
       #endif
       return;
     }
@@ -450,10 +452,11 @@ void updateServer() {
             client.println("HTTP/1.1 200 OK");
             client.println("Content-Type: text/html");
             client.println("");
+            client.println("<html><body><h1>Envoyé</h1></body></html>");
+            client.stop();
           }
         }
       }
     } 
-    client.stop();
   #endif
 }

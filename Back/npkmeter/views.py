@@ -1,3 +1,5 @@
+from django.utils.decorators import method_decorator
+# from corsheaders.decorators import cors_headers
 from npkmeter.models import NPKpH
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -23,6 +25,7 @@ def predict (data):
         liste_culture.append(classes[0][k])
     return liste_culture
 
+# @method_decorator(cors_headers(), name='dispatch')
 class BasicAPI(APIView):
     def get(self, request):
         q = NPKpH.objects.last()
@@ -73,6 +76,7 @@ class BasicAPI(APIView):
         rep = NPKpHSerializer(q)
         return Response(rep.data, status=status.HTTP_200_OK)
 
+# @method_decorator(cors_headers(), name='dispatch')
 class PredictionAPI(APIView):
     def get(self, request):
         q = NPKpH.objects.last()
