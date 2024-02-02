@@ -12,8 +12,8 @@ import numpy as np
 
 from npkmeter.serializers import NPKpHSerializer
 
-url = 'https://api.openweathermap.org/data/2.5/onecall?lat=3.8667&lon=11.5167&units=metric&exclude=alerts,hourly,minutely&appid=a03d6946088e1173a8d47e963ea36f23'
-r = requests.get(url)
+# url = 'https://api.openweathermap.org/data/2.5/onecall?lat=3.8667&lon=11.5167&units=metric&exclude=alerts,hourly,minutely&appid=a03d6946088e1173a8d47e963ea36f23'
+# r = requests.get(url)
 
 def predict (data):
     liste_culture = []
