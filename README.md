@@ -1,7 +1,7 @@
 # Projet d'Electronique
 
 ## Montage
-<p style = "text-align: center;"><img src = "./MontageNPK.jpg" alt = "Photo du montage" /></p>
+<p style = "text-align: center;"><img src = "./MontageNPK.png" alt = "Photo du montage" /></p>
 
 ## codeNPK
 
