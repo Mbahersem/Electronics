@@ -32,6 +32,16 @@ String prediction = "http://172.20.10.5:8000/npkmeter/npkph/prediction"; // URL 
   #include <WiFiClient.h>
   WiFiServer server(80);
 
+  // Broches pour interagir avec le MAX485 modbus (On peut modifier les valeurs)
+  #define DE 13
+  #define RE 15
+
+  // On peut également modifier ces informations en fonction de nos besoins
+  #define RX  4// Emulation de la broche qu'on veut pour la réception en série
+  #define TX  0// Emulation de la broche qu'on veut pour la transmission en série
+
+SoftwareSerial mod(RX, TX); // Initialisation d'une communication série avec le MAX485
+
   /*
   * Fonction : httpGETRequest
   * --------------------
@@ -43,38 +53,98 @@ String prediction = "http://172.20.10.5:8000/npkmeter/npkph/prediction"; // URL 
   * Retourne sous format JSON (String) le résultat
   */
   String httpGETRequest(String url) {
-  WiFiClient client;
-  HTTPClient http;
+    WiFiClient client;
+    HTTPClient http;
 
-  http.begin(client, url);
+    http.begin(client, url);
 
-  int httpResponseCode = http.GET();
+    int httpResponseCode = http.GET();
 
-  String payload = "{}";
+    String payload = "{}";
 
-  if(httpResponseCode > 0) {
-    Serial.print("HTTP Response Code: ");
-    Serial.println(httpResponseCode);
-    payload = http.getString();
+    if(httpResponseCode > 0) {
+      Serial.print("HTTP Response Code: ");
+      Serial.println(httpResponseCode);
+      payload = http.getString();
+    }
+    else {
+      Serial.print("Error Code: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end();
+
+    return payload;
   }
-  else {
-    Serial.print("Error Code: ");
-    Serial.println(httpResponseCode);
+
+  /*
+  * Fonction : updateServer
+  * --------------------
+  * Fonction pour écouter sur le endpoint /post du serveur et effectuer une requête HTTP POST des 
+  * valeurs lues au serveur sans avoir à les envoyer de façon constante
+  *
+  * Ne retourne rien
+  */
+  void updateServer() {
+    WiFiClient client = server.available();
+    if(!client) {
+      #ifdef TEST_NPK
+        Serial.print("N : ");
+        Serial.println(nitrogen());
+        Serial.print("P : ");
+        Serial.println(potassium());
+        Serial.print("K : ");
+        Serial.println(phosphorous());
+        Serial.println();
+        delay(1000);
+      #endif
+      return;
+    }
+
+    while(client.connected()) {
+      if(client.available()) {
+        String request = client.readStringUntil('\r');
+        Serial.println(request);
+
+        if(request.indexOf("/post") != -1) {
+          if(WiFi.status() == WL_CONNECTED) { // Vérification de l'état de connexion au point d'accès
+            httpPOSTRequest(basic);
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-Type: application/json");
+            client.println("")
+            client.println("{\"message\": \"Sent\"}");
+            client.stop();
+          }
+        }
+      }
+    } 
   }
 
-  http.end();
-
-  return payload;
-}
 #elif defined(ESP32)
+  // Tâches pour le multithreading
+  TaskHandle_t SMS;
+  TaskHandle_t Wifi;
+
   // Module utilisé et buffer
   #define TINY_GSM_MODEM_SIM800
   #define TINY_GSM_RX_BUFFER 1024
   #define MICROCONTROLLER_TYPE "ESP32"
   #include <WiFi.h>
+  #include <ArduinoJson.h>
+  #include <WebServer.h>
   #include <HTTPClient.h>
   #include <TinyGsmClient.h>
   // #include <WiFiClient.h>
+
+  #define DE 22
+  #define RE 21
+  #define RX 16
+  #define TX 17
+
+  WebServer server(80);
+
+  StaticJsonDocument<250> jsonDocument;
+  char buffer[250];
 
   // Broches pour la communication avec le module SIM800 à travers l'ESP32
   #define MODEM_RST 5
@@ -158,102 +228,8 @@ String prediction = "http://172.20.10.5:8000/npkmeter/npkph/prediction"; // URL 
   return payload;
 }
 
-#else
-  #error "Type de microcontrôleur non pris en charge"
-#endif
-
-// Broches pour interagir avec le MAX485 modbus (On peut modifier les valeurs)
-#define DE 13
-#define RE 15
-
-// On peut également modifier ces informations en fonction de nos besoins
-#define RX  4// Emulation de la broche qu'on veut pour la réception en série
-#define TX  0// Emulation de la broche qu'on veut pour la transmission en série
-
-SoftwareSerial mod(RX, TX); // Initialisation d'une communication série avec le MAX485
-
-// Adresses de l'azote, du  phosphore et du potassium sur le MAX485
-const byte nitro_inquiry_frame[] = {0x01,0x03, 0x00, 0x1e, 0x00, 0x01, 0xe4, 0x0c};
-const byte phos_inquiry_frame[] = {0x01,0x03, 0x00, 0x1f, 0x00, 0x01, 0xb5, 0xcc};
-const byte pota_inquiry_frame[] = {0x01,0x03, 0x00, 0x20, 0x00, 0x01, 0x85, 0xc0};
-
-byte values[11];
-
-// Informations à modifier si on utilise un autre réseau WiFi
-const char* ssid = "Marvelous"; // Nom du point d'accès WiFi
-const char* password = "07122023*"; // Mot de passe du point d'accès WiFi
-
-void setup() {
-  #if defined(ESP8266)
-    pinMode(DE, OUTPUT); // Configuration de la broche DE en sortie
-    pinMode(RE, OUTPUT); // Configuration de la broche RE en sortie
-    Serial.begin(115200); // Démarrage de la communication en série avec la vitesse de 115200 pour la connexion au WiFi
-    mod.begin(9600); // Initialisation pour la communication en série avec le MAX485 modbus
-    Serial.println("Modbus initialisé.");
-    WiFi.begin(ssid, password); // Initialisation de la connexion au point d'accès WiFi
-
-    Serial.print("Connexion");
-    while(WiFi.status() != WL_CONNECTED) { // Vérification de la connexion au point d'accès
-      delay(500);
-      Serial.print(".");
-    }
-    Serial.println("");
-    Serial.print("Connecté au réseau WiFi avec l'adresse IP : ");
-    Serial.println(WiFi.localIP());
-
-    server.begin();
-
-    Serial.println("Serveur HTTP démarré.");
-  #elif defined(ESP32)
-    mod.begin(9600); // Initialisation pour la communication en série avec le MAX485 modbus
-    pinMode(RE, OUTPUT); // Configuration de la broche RE en sortie
-    pinMode(DE, OUTPUT); // Configuration de la broche DE en sortie
-    SerialMon.println("Modbus initialisé.");
-    SerialMon.begin(115200);
-
-    Wire.begin(I2C_SDA, I2C_SCL);
-    bool isOk = setPowerBoostKeepOn(1);
-    SerialMon.println(String("IP5306 KeepOn ") + (isOk ? "OK" : "FAIL"));
-
-    // Set modem reset, enable, power pins
-    pinMode(MODEM_PWKEY, OUTPUT);
-    pinMode(MODEM_RST, OUTPUT);
-    pinMode(MODEM_POWER_ON, OUTPUT);
-    digitalWrite(MODEM_PWKEY, LOW);
-    digitalWrite(MODEM_RST, HIGH);
-    digitalWrite(MODEM_POWER_ON, HIGH);
-
-    // Set GSM module baud rate and UART pins
-    SerialAT.begin(115200, SERIAL_8N1, MODEM_RX, MODEM_TX);
-    delay(3000);
-
-    SerialMon.println("Initialisation du modem...");
-    modem.init();
-
-    SerialAT.println("AT"); // Handshake réussi
-    updateSerial();
-    delay(200);
-    SerialAT.println("AT+CMGF=1"); // Configurer le mode texte
-    updateSerial();
-    delay(200);
-    SerialAT.println("AT+CNMI=2,1,0,0,0"); // Décider comment les nouveaux messages reçus devront être gérés. Dès réception, notification et stockage en mémoire
-    updateSerial();
-
-    WiFi.begin(ssid, password); // Initialisation de la connexion au point d'accès WiFi
-
-    Serial.print("Connexion");
-    while(WiFi.status() != WL_CONNECTED) { // Vérification de la connexion au point d'accès
-      delay(500);
-      SerialMon.print(".");
-    }
-    SerialMon.println("Connecté !");
-  #endif
-}
-
-void loop() {
-  #if defined(ESP8266)
-    updateServer();
-  #elif defined(ESP32)
+void handleReceivedSMS(void *pvParameters) {
+  for(;;) {
     // Vérifier l'arrivée de nouveaux messages
     if(SerialAT.available()) {
       // Lecture de la notification
@@ -292,6 +268,7 @@ void loop() {
             String message = gsm.substring(ash + 2);
             message.trim();
             if(message.startsWith("get")) {
+              int res = httpPOSTRequest(basic);
               String response = httpGETRequest(basic);
               if(modem.sendSMS(number, response)) {
                 SerialMon.println(response);
@@ -301,6 +278,7 @@ void loop() {
               }
             }
             if(message.startsWith("predict")) {
+              int res = httpPOSTRequest(basic);
               String response = httpGETRequest(prediction);
               if(modem.sendSMS(number, response)) {
                 SerialMon.println(response);
@@ -316,6 +294,144 @@ void loop() {
         }
       }
     }
+  }
+}
+
+void create_json() {  
+  jsonDocument.clear();  
+  jsonDocument["message"] = "Ok";
+  serializeJson(jsonDocument, buffer);
+}
+
+void postData() {
+  int res = httpPOSTRequest(basic);
+  create_json();
+  if(res == 200) {
+    server.send(200, "application/json", buffer);
+  } else {
+    server.send(404, "application/json", buffer);
+  }
+}
+
+void updateServer(void *pvParameters) {
+  server.on("/post", postData);
+  server.begin();
+  for(;;) {
+    server.handleClient();
+  }
+}
+
+#else
+  #error "Type de microcontrôleur non pris en charge"
+#endif
+
+// Adresses de l'azote, du  phosphore et du potassium sur le MAX485
+const byte nitro_inquiry_frame[] = {0x01,0x03, 0x00, 0x1e, 0x00, 0x01, 0xe4, 0x0c};
+const byte phos_inquiry_frame[] = {0x01,0x03, 0x00, 0x1f, 0x00, 0x01, 0xb5, 0xcc};
+const byte pota_inquiry_frame[] = {0x01,0x03, 0x00, 0x20, 0x00, 0x01, 0x85, 0xc0};
+
+byte values[11];
+
+// Informations à modifier si on utilise un autre réseau WiFi
+const char* ssid = "Marvelous"; // Nom du point d'accès WiFi
+const char* password = "07122023*"; // Mot de passe du point d'accès WiFi
+
+void setup() {
+  #if defined(ESP8266)
+    pinMode(DE, OUTPUT); // Configuration de la broche DE en sortie
+    pinMode(RE, OUTPUT); // Configuration de la broche RE en sortie
+    Serial.begin(115200); // Démarrage de la communication en série avec la vitesse de 115200 pour la connexion au WiFi
+    mod.begin(9600); // Initialisation pour la communication en série avec le MAX485 modbus
+    Serial.println("Modbus initialisé.");
+    WiFi.begin(ssid, password); // Initialisation de la connexion au point d'accès WiFi
+
+    Serial.print("Connexion");
+    while(WiFi.status() != WL_CONNECTED) { // Vérification de la connexion au point d'accès
+      delay(500);
+      Serial.print(".");
+    }
+    Serial.println("");
+    Serial.print("Connecté au réseau WiFi avec l'adresse IP : ");
+    Serial.println(WiFi.localIP());
+
+    server.begin();
+
+    Serial.println("Serveur HTTP démarré.");
+  #elif defined(ESP32)
+    SerialMon.begin(115200);
+    Serial2.begin(9600, SERIAL_8N1, RX, TX);
+    pinMode(RE, OUTPUT); // Configuration de la broche RE en sortie
+    pinMode(DE, OUTPUT); // Configuration de la broche DE en sortie
+    SerialMon.println("Modbus initialisé.");
+
+    Wire.begin(I2C_SDA, I2C_SCL);
+    bool isOk = setPowerBoostKeepOn(1);
+    SerialMon.println(String("IP5306 KeepOn ") + (isOk ? "OK" : "FAIL"));
+
+    // Set modem reset, enable, power pins
+    pinMode(MODEM_PWKEY, OUTPUT);
+    pinMode(MODEM_RST, OUTPUT);
+    pinMode(MODEM_POWER_ON, OUTPUT);
+    digitalWrite(MODEM_PWKEY, LOW);
+    digitalWrite(MODEM_RST, HIGH);
+    digitalWrite(MODEM_POWER_ON, HIGH);
+
+    // Set GSM module baud rate and UART pins
+    SerialAT.begin(115200, SERIAL_8N1, MODEM_RX, MODEM_TX);
+    delay(3000);
+
+    SerialMon.println("Initialisation du modem...");
+    modem.init();
+
+    SerialAT.println("AT"); // Handshake réussi
+    updateSerial();
+    delay(200);
+    SerialAT.println("AT+CMGF=1"); // Configurer le mode texte
+    updateSerial();
+    delay(200);
+    SerialAT.println("AT+CNMI=2,1,0,0,0"); // Décider comment les nouveaux messages reçus devront être gérés. Dès réception, notification et stockage en mémoire
+    updateSerial();
+
+    WiFi.begin(ssid, password); // Initialisation de la connexion au point d'accès WiFi
+
+    Serial.print("Connexion");
+    while(WiFi.status() != WL_CONNECTED) { // Vérification de la connexion au point d'accès
+      delay(500);
+      SerialMon.print(".");
+    }
+    SerialMon.println("Connecté !");
+    Serial.print("Connecté au réseau WiFi avec l'adresse IP : ");
+    Serial.println(WiFi.localIP());
+
+    xTaskCreatePinnedToCore(
+      updateServer,
+      "WiFi",
+      10000,
+      NULL,
+      1, 
+      &Wifi,
+      0
+    );
+    delay(500);
+
+    xTaskCreatePinnedToCore(
+      handleReceivedSMS,
+      "SMS",
+      10000,
+      NULL,
+      1,
+      &SMS,
+      1
+    );
+    delay(500);
+  #endif
+}
+
+void loop() {
+  #if defined(ESP8266)
+    updateServer();
+  #elif defined(ESP32)
+
   #endif
 }
 
@@ -341,12 +457,12 @@ byte nitrogen() {
   digitalWrite(DE, HIGH);
   digitalWrite(RE, HIGH);
   delay(10);
-  if(mod.write(nitro_inquiry_frame, sizeof(nitro_inquiry_frame)) == 8) {
+  if(Serial2.write(nitro_inquiry_frame, sizeof(nitro_inquiry_frame)) == 8) {
     digitalWrite(DE, LOW);
     digitalWrite(RE, LOW);
 
     for(byte i = 0; i < 7; i++) {
-      values[i] = mod.read();
+      values[i] = Serial2.read();
       Serial.print(values[i], HEX);
     }
     Serial.println();
@@ -365,12 +481,12 @@ byte phosphorous() {
   digitalWrite(DE, HIGH);
   digitalWrite(RE, HIGH);
   delay(10);
-  if(mod.write(phos_inquiry_frame, sizeof(phos_inquiry_frame)) == 8) {
+  if(Serial2.write(phos_inquiry_frame, sizeof(phos_inquiry_frame)) == 8) {
     digitalWrite(DE, LOW);
     digitalWrite(RE, LOW);
 
     for(byte i = 0; i < 7; i++) {
-      values[i] = mod.read();
+      values[i] = Serial2.read();
       Serial.print(values[i], HEX);
     }
     Serial.println();
@@ -389,12 +505,12 @@ byte potassium() {
   digitalWrite(DE, HIGH);
   digitalWrite(RE, HIGH);
   delay(10);
-  if(mod.write(pota_inquiry_frame, sizeof(pota_inquiry_frame)) == 8) {
+  if(Serial2.write(pota_inquiry_frame, sizeof(pota_inquiry_frame)) == 8) {
     digitalWrite(DE, LOW);
     digitalWrite(RE, LOW);
 
     for(byte i = 0; i < 7; i++) {
-      values[i] = mod.read();
+      values[i] = Serial2.read();
       Serial.print(values[i], HEX);
     }
     Serial.println();
@@ -410,9 +526,9 @@ byte potassium() {
 *
 * Fonction pour effectuer une requête HTTP POST vers le serveur
 *
-* Ne retourne rien
+* Code de réponse
 */
-void httpPOSTRequest(String url) {
+int httpPOSTRequest(String url) {
   WiFiClient client;
 
   HTTPClient http;
@@ -430,49 +546,6 @@ void httpPOSTRequest(String url) {
   Serial.println(httpResponseCode);
 
   http.end();
-}
 
-/*
-* Fonction : updateServer
-* --------------------
-* Fonction pour écouter sur le endpoint /post du serveur et effectuer une requête HTTP POST des 
-* valeurs lues au serveur sans avoir à les envoyer de façon constante
-*
-* Ne retourne rien
-*/
-void updateServer() {
-  #if defined(ESP8266)
-    WiFiClient client = server.available();
-    if(!client) {
-      #ifdef TEST_NPK
-        Serial.print("N : ");
-        Serial.println(nitrogen());
-        Serial.print("P : ");
-        Serial.println(potassium());
-        Serial.print("K : ");
-        Serial.println(phosphorous());
-        Serial.println();
-        delay(1000);
-      #endif
-      return;
-    }
-
-    while(client.connected()) {
-      if(client.available()) {
-        String request = client.readStringUntil('\r');
-        Serial.println(request);
-
-        if(request.indexOf("/post") != -1) {
-          if(WiFi.status() == WL_CONNECTED) { // Vérification de l'état de connexion au point d'accès
-            httpPOSTRequest(basic);
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-Type: application/json");
-            client.println("")
-            client.println("{\"message\": \"Sent\"}");
-            client.stop();
-          }
-        }
-      }
-    } 
-  #endif
+  return httpResponseCode;
 }
