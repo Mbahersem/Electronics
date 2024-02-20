@@ -13,12 +13,12 @@
 * Rédigé par l'équipe de stagiaires
 *
 * Créé le 26/08/2023
-* Modifié le 03/02/2024
+* Modifié le 15/02/2024
 */
 
 // URL des requêtes HTTP POST et GET, à modifier en fonction de l'API qu'on a créé côté serveur
-String basic = "http://172.20.10.5:8000/npkmeter/npkph/"; 
-String prediction = "http://172.20.10.5:8000/npkmeter/npkph/prediction"; // URL de la prédiction
+String basic = "http://172.20.10.3:8000/npkmeter/npkph/"; 
+String prediction = "http://172.20.10.3:8000/npkmeter/npkph/prediction"; // URL de la prédiction
 
 #define TEST_NPK
 // Importation des bibliothèques nécessaires
@@ -233,8 +233,9 @@ void handleReceivedSMS(void *pvParameters) {
     // Vérifier l'arrivée de nouveaux messages
     if(SerialAT.available()) {
       // Lecture de la notification
-      gsm = SerialAT.readString();
+      gsm = SerialAT.readString(); 
       gsm.trim();
+      gsm.toLowerCase();
       /* 
       On vérifie bien qu'il s'agit d'une notification de réception de SMS et on stocke l'index du message reçu.
       Ex -> +CMTI: "SM", <index> où SM représente la mémoire de stockage
