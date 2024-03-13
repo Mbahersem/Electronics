@@ -136,12 +136,14 @@ SoftwareSerial mod(RX, TX); // Initialisation d'une communication série avec le
   #include <TinyGsmClient.h>
   // #include <WiFiClient.h>
 
-  #define DE 22
-  #define RE 21
-  #define RX 16
-  #define TX 17
+  #define DE 19
+  #define RE 23
+  #define RX 26
+  #define TX 18
 
   WebServer server(80);
+
+  SoftwareSerial modbus(RX, TX);
 
   StaticJsonDocument<250> jsonDocument;
   char buffer[250];
@@ -360,7 +362,7 @@ void setup() {
     Serial.println("Serveur HTTP démarré.");
   #elif defined(ESP32)
     SerialMon.begin(115200);
-    Serial2.begin(9600, SERIAL_8N1, RX, TX);
+    modbus.begin(9600);
     pinMode(RE, OUTPUT); // Configuration de la broche RE en sortie
     pinMode(DE, OUTPUT); // Configuration de la broche DE en sortie
     SerialMon.println("Modbus initialisé.");
@@ -458,12 +460,12 @@ byte nitrogen() {
   digitalWrite(DE, HIGH);
   digitalWrite(RE, HIGH);
   delay(10);
-  if(Serial2.write(nitro_inquiry_frame, sizeof(nitro_inquiry_frame)) == 8) {
+  if(modbus.write(nitro_inquiry_frame, sizeof(nitro_inquiry_frame)) == 8) {
     digitalWrite(DE, LOW);
     digitalWrite(RE, LOW);
 
     for(byte i = 0; i < 7; i++) {
-      values[i] = Serial2.read();
+      values[i] = modbus.read();
       Serial.print(values[i], HEX);
     }
     Serial.println();
@@ -482,12 +484,12 @@ byte phosphorous() {
   digitalWrite(DE, HIGH);
   digitalWrite(RE, HIGH);
   delay(10);
-  if(Serial2.write(phos_inquiry_frame, sizeof(phos_inquiry_frame)) == 8) {
+  if(modbus.write(phos_inquiry_frame, sizeof(phos_inquiry_frame)) == 8) {
     digitalWrite(DE, LOW);
     digitalWrite(RE, LOW);
 
     for(byte i = 0; i < 7; i++) {
-      values[i] = Serial2.read();
+      values[i] = modbus.read();
       Serial.print(values[i], HEX);
     }
     Serial.println();
@@ -506,12 +508,12 @@ byte potassium() {
   digitalWrite(DE, HIGH);
   digitalWrite(RE, HIGH);
   delay(10);
-  if(Serial2.write(pota_inquiry_frame, sizeof(pota_inquiry_frame)) == 8) {
+  if(modbus.write(pota_inquiry_frame, sizeof(pota_inquiry_frame)) == 8) {
     digitalWrite(DE, LOW);
     digitalWrite(RE, LOW);
 
     for(byte i = 0; i < 7; i++) {
-      values[i] = Serial2.read();
+      values[i] = modbus.read();
       Serial.print(values[i], HEX);
     }
     Serial.println();
