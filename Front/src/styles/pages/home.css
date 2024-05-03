@@ -1,0 +1,42 @@
+.actualize {
+
+    position: absolute;
+    left: 50%;
+    bottom: 90px;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+}
+.documentation-link {
+
+    color: #BDFF52;
+    text-decoration: underline;
+    transition: 0.2s;
+
+}
+.documentation-link:focus {
+
+    color: blue;
+
+}
+.actu-btn {
+
+    width: 308px;
+    height: 88px;
+    font-size: 32px;
+    font-weight: 400;
+    font-family: 'Roboto';
+    color: white;
+    background-color: rgb(189, 255, 82, 0.72);
+    border: none;
+    cursor: pointer;
+    transition: 0.5s;
+
+}
+.actu-btn:active {
+
+    background-color: rgba(189, 255, 82, 0.45);
+
+}
