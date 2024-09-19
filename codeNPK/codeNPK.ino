@@ -137,7 +137,7 @@ SoftwareSerial mod(RX, TX); // Initialisation d'une communication série avec le
   // #include <WiFiClient.h>
 
   #define DE 19
-  #define RE 23
+  #define RE 25
   #define RX 26
   #define TX 18
 
